@@ -7,13 +7,14 @@ import cz.neumimto.configuration.ConfigMapper;
  */
 public class Main {
 
-    private static String MODID = "asd";
+    private static String ID = "asd";
     public static void main(String[] args) {
-        ConfigMapper.init(MODID, Main.class.getProtectionDomain());
+        ConfigMapper.init(ID, Main.class.getProtectionDomain());
         //
         //
         //
-        ConfigMapper loader = ConfigMapper.get(MODID);
+        ConfigMapper loader = ConfigMapper.get(ID);
         loader.loadClass(Test.class);
+        int i = 0;
     }
 }

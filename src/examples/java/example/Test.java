@@ -15,7 +15,7 @@ import java.util.*;
  * @see cz.neumimto.configuration.ConfigMapper#init(String, java.nio.file.Path)
  */
 @Comment(content = {"comments -  , first line","Second line"})
-@ConfigurationContainer(path = "{WorkingDir}",filename = "example.Test.yml")
+@ConfigurationContainer(path = "{WorkingDir}",filename = "example.Test.conf")
 public class Test {
 
     @ConfigValue(name = "Test")
@@ -33,18 +33,19 @@ public class Test {
     @ConfigValue(name = "vectorList")
     public static Set<Float> floatList = new HashSet<Float>(Arrays.asList(30F,40F,80F));
 
-    @Comment(content = {"String map", "this version cant load maps yet :(, wait for upcoming update"})
+    @Comment(content = {"String map"})
     @ConfigValue(name = "strstrmap")
     public static Map<String,String> map = new HashMap<String,String>(){{
         put("AKey1","AValue");
-        put("AKey2","AValue2");
+        put("AKey2","beee");
     }};
 
 
-    @Comment(content = {"String map", "this version cant load maps yet :(, wait for upcoming update"})
+    @Comment(content = {"String map"})
     @ConfigValue()
     public static Map<String,Integer> stringIntPairs = new HashMap<String,Integer>(){{
         put("AKey1",5);
-        put("AKey2",50);
+        put("AKey2",5000);
     }};
+
 }

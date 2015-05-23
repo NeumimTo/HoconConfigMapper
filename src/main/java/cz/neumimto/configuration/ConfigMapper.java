@@ -2,6 +2,7 @@ package cz.neumimto.configuration;
 
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
+import example.Test;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -167,9 +168,11 @@ public class ConfigMapper {
                         Method m = cm.set;
                         m.invoke(f, f, value);
                     } else if (f.getType().isAssignableFrom(List.class)) {
-                        f.set(null, stringToList(f, config.getStringList(getNodeName(f))));
+                        f.set(null, stringToList(f, config.getStringList(getNodeName(f)), config));
                     } else if (f.getType().isAssignableFrom(Set.class)) {
-                        f.set(null, stringToSet(f, config.getStringList(getNodeName(f))));
+                        f.set(null, stringToSet(f, config.getStringList(getNodeName(f)), config));
+                    } else if (f.getType().isAssignableFrom(Map.class)) {
+                        f.set(null, stringToMap(f, config.getConfig(getNodeName(f))));
                     } else {
                         IMarshaller<?> marshaller = f.getAnnotation(ConfigValue.class).as().newInstance();
                         Object o = marshaller.unmarshall(config.getConfig(getNodeName(f)));
@@ -188,6 +191,13 @@ public class ConfigMapper {
         return primitiveWrappers.get(f.getType());
     }
 
+    private boolean isValidMap(Class<?> key, Class<?> value) {
+        if (isWrappedPrimitiveOrString(key) && isWrappedPrimitiveOrString(value)) {
+            return true;
+        }
+        return false;
+    }
+
     private Map<?, ?> stringToMap(Field f, Config config) {
         try {
             Map<Object, Object> map = (Map<Object, Object>) f.get(null);
@@ -195,43 +205,41 @@ public class ConfigMapper {
             ParameterizedType type = (ParameterizedType) f.getGenericType();
             Class<?> key = (Class<?>) type.getActualTypeArguments()[0];
             Class<?> value = (Class<?>) type.getActualTypeArguments()[1];
-            if (isWrappedPrimitiveOrString(key) && isWrappedPrimitiveOrString(value)) {
-                Config sub = config.getConfig(getNodeName(f));
-                Set set = sub.entrySet();
-                set.clear();
+            if (isValidMap(key,value)) {
+                for (Map.Entry<String, com.typesafe.config.ConfigValue> val :config.entrySet()) {
+                    Object k = new Object();
+                    Object v = new Object();
+                    if (key.isAssignableFrom(String.class)) {
+                        k = val.getKey();
+                    } else {
+                        CMPair cm = primitiveWrappers.get(key);
+                        k = cm.parse.invoke(null,val.getKey());
+                    }
+                    if (value.isAssignableFrom(String.class)) {
+                        v = val.getValue().render();
+                    } else {
+                        CMPair cm = primitiveWrappers.get(value);
+                        String input = val.getValue().render();
+                        v = cm.parse.invoke(null,input);
+                    }
+                    map.put(k,v);
+                }
             } else {
                 IMapMarshaller<?, ?> mapMarshaller = (IMapMarshaller<?, ?>) f.getAnnotation(ConfigValue.class).as().newInstance();
-                Map.Entry entry = mapMarshaller.unmarshall(config.getConfig(getNodeName(f)));
+                Map.Entry entry = mapMarshaller.unmarshall(config);
                 map.put(entry.getKey(), entry.getValue());
             }
+            return map;
         } catch (IllegalAccessException e) {
             e.printStackTrace();
         } catch (InstantiationException e) {
+            e.printStackTrace();
+        } catch (InvocationTargetException e) {
             e.printStackTrace();
         }
         return null;
     }
 
-
-    private void setStaticFieldPrimitiveValue(Field f, Method m, String param) {
-        try {
-            f.set(null, m.invoke(param));
-        } catch (IllegalAccessException e) {
-            e.printStackTrace();
-        } catch (InvocationTargetException e) {
-            e.printStackTrace();
-        }
-    }
-
-
-    private boolean isTypeOf(Field field, Class<?>... cl) {
-        Class type = field.getType();
-        for (Class<?> c : cl) {
-            if (!type.isAssignableFrom(c))
-                return false;
-        }
-        return true;
-    }
 
     private String getNodeName(Field field) {
         ConfigValue c = field.getAnnotation(ConfigValue.class);
@@ -242,11 +250,11 @@ public class ConfigMapper {
         return field.getName();
     }
 
-    private Set<?> stringToSet(Field f, List<String> config) {
+    private Set<?> stringToSet(Field f, List<String> config, Config c) {
         try {
             Set set = (Set<?>) f.get(null);
             set.clear();
-            set.addAll(stringToCollection(f, config));
+            set.addAll(stringToCollection(f, config, c));
             return set;
         } catch (IllegalAccessException e) {
             e.printStackTrace();
@@ -266,7 +274,7 @@ public class ConfigMapper {
         return l;
     }
 
-    private Collection<?> stringToCollection(Field f, List<String> config) {
+    private Collection<?> stringToCollection(Field f, List<String> config, Config c) {
         try {
             Collection list = (Collection) f.get(null);
             list.clear();
@@ -283,7 +291,7 @@ public class ConfigMapper {
                 list = strToWrapper(Short.class, config);
             } else {
                 IMarshaller<?> marshaller = f.getAnnotation(ConfigValue.class).as().newInstance();
-                //list.add(marshaller.unmarshall(config));
+                list.add(marshaller.unmarshall(c.getConfig(getNodeName(f))));
             }
             return list;
         } catch (IllegalAccessException e) {
@@ -294,11 +302,11 @@ public class ConfigMapper {
         return null;
     }
 
-    private List<?> stringToList(Field f, List<String> config) {
+    private List<?> stringToList(Field f, List<String> config, Config c) {
         try {
             List list = (List<?>) f.get(null);
             list.clear();
-            list.addAll(stringToCollection(f, config));
+            list.addAll(stringToCollection(f, config, c));
             return list;
         } catch (IllegalAccessException e) {
             e.printStackTrace();
