@@ -146,7 +146,7 @@ public class ConfigMapper {
                     } else if (Map.class.isAssignableFrom(f.getType())) {
                         content = mapToString(f);
                     }
-                    writer.write("\"" + valueid + "\"" + " : " + content + LSEPARATOR);
+                    writer.write(getSerializedNode(valueid) + " : " + content + LSEPARATOR);
                 }
                 writer.flush();
                 writer.close();
@@ -423,4 +423,11 @@ public class ConfigMapper {
         return null;
     }
 
+    private String getSerializedNode(String nodeValue) {
+        if (nodeValue.contains(".")) {
+            return nodeValue;
+        }
+
+        return "\"" + nodeValue + "\"";
+    }
 }
