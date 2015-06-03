@@ -53,9 +53,10 @@ public class ConfigMapper {
             put(long.class, CMPair.create(Long.class.getDeclaredMethod("parseLong", String.class), Field.class.getDeclaredMethod("setLong", Object.class, long.class)));
             put(float.class, CMPair.create(Float.class.getDeclaredMethod("valueOf", String.class), Field.class.getDeclaredMethod("setFloat", Object.class, float.class)));
             put(short.class, CMPair.create(Short.class.getDeclaredMethod("parseShort", String.class), Field.class.getDeclaredMethod("setShort", Object.class, short.class)));
-            put(double.class, CMPair.create(Double.class.getDeclaredMethod("parseDouble", String.class), Field.class.getDeclaredMethod("set")));
+            put(double.class, CMPair.create(Double.class.getDeclaredMethod("parseDouble", String.class), Field.class.getDeclaredMethod("setDouble", Object.class, double.class)));
+            put(boolean.class, CMPair.create(Boolean.class.getDeclaredMethod("parseBoolean", String.class), Field.class.getDeclaredMethod("setBoolean", Object.class, boolean.class)));
         } catch (Exception ex) {
-
+            ex.printStackTrace();
         }
     }};
 
@@ -185,7 +186,7 @@ public class ConfigMapper {
     }
 
     private CMPair getCMPair(Field f) {
-        if (f.getClass().isPrimitive())
+        if (f.getType().isPrimitive())
             return primitives.get(f.getType());
         return primitiveWrappers.get(f.getType());
     }
