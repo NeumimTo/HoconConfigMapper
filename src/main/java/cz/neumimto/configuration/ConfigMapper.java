@@ -2,7 +2,6 @@ package cz.neumimto.configuration;
 
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
-import example.Test;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -205,24 +204,24 @@ public class ConfigMapper {
             ParameterizedType type = (ParameterizedType) f.getGenericType();
             Class<?> key = (Class<?>) type.getActualTypeArguments()[0];
             Class<?> value = (Class<?>) type.getActualTypeArguments()[1];
-            if (isValidMap(key,value)) {
-                for (Map.Entry<String, com.typesafe.config.ConfigValue> val :config.entrySet()) {
+            if (isValidMap(key, value)) {
+                for (Map.Entry<String, com.typesafe.config.ConfigValue> val : config.entrySet()) {
                     Object k = new Object();
                     Object v = new Object();
                     if (key.isAssignableFrom(String.class)) {
                         k = val.getKey();
                     } else {
                         CMPair cm = primitiveWrappers.get(key);
-                        k = cm.parse.invoke(null,val.getKey());
+                        k = cm.parse.invoke(null, val.getKey());
                     }
                     if (value.isAssignableFrom(String.class)) {
                         v = val.getValue().render();
                     } else {
                         CMPair cm = primitiveWrappers.get(value);
                         String input = val.getValue().render();
-                        v = cm.parse.invoke(null,input);
+                        v = cm.parse.invoke(null, input);
                     }
-                    map.put(k,v);
+                    map.put(k, v);
                 }
             } else {
                 IMapMarshaller<?, ?> mapMarshaller = (IMapMarshaller<?, ?>) f.getAnnotation(ConfigValue.class).as().newInstance();
