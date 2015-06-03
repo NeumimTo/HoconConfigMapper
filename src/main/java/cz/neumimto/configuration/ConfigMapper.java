@@ -2,7 +2,6 @@ package cz.neumimto.configuration;
 
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
-import example.Test;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -54,9 +53,10 @@ public class ConfigMapper {
             put(long.class, CMPair.create(Long.class.getDeclaredMethod("parseLong", String.class), Field.class.getDeclaredMethod("setLong", Object.class, long.class)));
             put(float.class, CMPair.create(Float.class.getDeclaredMethod("valueOf", String.class), Field.class.getDeclaredMethod("setFloat", Object.class, float.class)));
             put(short.class, CMPair.create(Short.class.getDeclaredMethod("parseShort", String.class), Field.class.getDeclaredMethod("setShort", Object.class, short.class)));
-            put(double.class, CMPair.create(Double.class.getDeclaredMethod("parseDouble", String.class), Field.class.getDeclaredMethod("set")));
+            put(double.class, CMPair.create(Double.class.getDeclaredMethod("parseDouble", String.class), Field.class.getDeclaredMethod("setDouble", Object.class, double.class)));
+            put(boolean.class, CMPair.create(Boolean.class.getDeclaredMethod("parseBoolean", String.class), Field.class.getDeclaredMethod("setBoolean", Object.class, boolean.class)));
         } catch (Exception ex) {
-
+            ex.printStackTrace();
         }
     }};
 
@@ -146,7 +146,7 @@ public class ConfigMapper {
                     } else if (Map.class.isAssignableFrom(f.getType())) {
                         content = mapToString(f);
                     }
-                    writer.write("\"" + valueid + "\"" + " : " + content + LSEPARATOR);
+                    writer.write(getSerializedNode(valueid) + " : " + content + LSEPARATOR);
                 }
                 writer.flush();
                 writer.close();
@@ -186,7 +186,7 @@ public class ConfigMapper {
     }
 
     private CMPair getCMPair(Field f) {
-        if (f.getClass().isPrimitive())
+        if (f.getType().isPrimitive())
             return primitives.get(f.getType());
         return primitiveWrappers.get(f.getType());
     }
@@ -205,24 +205,24 @@ public class ConfigMapper {
             ParameterizedType type = (ParameterizedType) f.getGenericType();
             Class<?> key = (Class<?>) type.getActualTypeArguments()[0];
             Class<?> value = (Class<?>) type.getActualTypeArguments()[1];
-            if (isValidMap(key,value)) {
-                for (Map.Entry<String, com.typesafe.config.ConfigValue> val :config.entrySet()) {
+            if (isValidMap(key, value)) {
+                for (Map.Entry<String, com.typesafe.config.ConfigValue> val : config.entrySet()) {
                     Object k = new Object();
                     Object v = new Object();
                     if (key.isAssignableFrom(String.class)) {
                         k = val.getKey();
                     } else {
                         CMPair cm = primitiveWrappers.get(key);
-                        k = cm.parse.invoke(null,val.getKey());
+                        k = cm.parse.invoke(null, val.getKey());
                     }
                     if (value.isAssignableFrom(String.class)) {
                         v = val.getValue().render();
                     } else {
                         CMPair cm = primitiveWrappers.get(value);
                         String input = val.getValue().render();
-                        v = cm.parse.invoke(null,input);
+                        v = cm.parse.invoke(null, input);
                     }
-                    map.put(k,v);
+                    map.put(k, v);
                 }
             } else {
                 IMapMarshaller<?, ?> mapMarshaller = (IMapMarshaller<?, ?>) f.getAnnotation(ConfigValue.class).as().newInstance();
@@ -423,4 +423,11 @@ public class ConfigMapper {
         return null;
     }
 
+    private String getSerializedNode(String nodeValue) {
+        if (nodeValue.contains(".")) {
+            return nodeValue;
+        }
+
+        return "\"" + nodeValue + "\"";
+    }
 }
