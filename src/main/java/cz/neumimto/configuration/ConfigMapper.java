@@ -6,12 +6,13 @@ import com.typesafe.config.ConfigFactory;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.net.URISyntaxException;
-import java.nio.file.Path;
+import java.nio.file.*;
 import java.security.ProtectionDomain;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -86,6 +87,66 @@ public class ConfigMapper {
 
     public static ConfigMapper get(String id) {
         return currents.get(id.toLowerCase());
+    }
+
+    public <E> List<E> loadEntities(Class<E> clazz) {
+        Entity entity = clazz.getAnnotation(Entity.class);
+        if (entity == null)
+            return Collections.EMPTY_LIST;
+        String ext = entity.fileExt();
+        return loadEntities(clazz, "*."+ext);
+    };
+
+    public <E> E loadEntity(Class<E> clazz, String id) {
+        E e = null;
+        try {
+            e = clazz.newInstance();
+        } catch (InstantiationException | IllegalAccessException e1) {
+            e1.printStackTrace();
+            return null;
+        }
+
+
+        return e;
+    }
+
+    public <E> void saveEntity(E e)  {
+
+    }
+
+    public <E> List<E> loadEntities(Class<E> clazz, String wildcart) {
+        Entity entity = clazz.getAnnotation(Entity.class);
+        if (entity == null)
+            return Collections.EMPTY_LIST;
+        File dir = null;
+        if (entity.directoryPath().trim().equalsIgnoreCase("")) {
+            try {
+                dir = new File(new File(ConfigMapper.class.getProtectionDomain().getCodeSource().getLocation().toURI().getPath()), filename);
+            } catch (URISyntaxException e) {
+                e.printStackTrace();
+            }
+        } else {
+            dir = new File(entity.directoryPath().replace("{WorkingDir}", path.toString()));
+        }
+        PathMatcher pathMatcher = FileSystems.getDefault().getPathMatcher("glob:"+wildcart);
+        List<E> entities = new Vector<E>();
+        for (File f : dir.listFiles()) {
+            if (pathMatcher.matches(f.toPath())) {
+                E e = loadEntity(clazz, removeExt(f.getName()));
+                if (e != null)
+                    entities.add(e);
+            }
+        }
+        return entities;
+    }
+
+    private String removeExt(String str) {
+      if (str == null)
+          return null;
+      int pos = str.lastIndexOf(".");
+      if (pos == -1)
+          return str;
+      return str.substring(0, pos);
     }
 
     /**

@@ -14,7 +14,6 @@ public class Main {
         //
         //
         ConfigMapper loader = ConfigMapper.get(ID);
-        loader.loadClass(Test.class);
-        int i = 0;
+        loader.loadClass2(Test.class);
     }
 }
