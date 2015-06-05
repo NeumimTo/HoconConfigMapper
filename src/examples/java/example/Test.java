@@ -3,7 +3,6 @@ package example;
 import cz.neumimto.configuration.Comment;
 import cz.neumimto.configuration.ConfigValue;
 import cz.neumimto.configuration.ConfigurationContainer;
-import cz.neumimto.configuration.Loadable;
 
 import java.util.*;
 

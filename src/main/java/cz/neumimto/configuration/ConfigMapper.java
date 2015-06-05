@@ -6,13 +6,14 @@ import com.typesafe.config.ConfigFactory;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.net.URISyntaxException;
-import java.nio.file.*;
+import java.nio.file.FileSystems;
+import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.security.ProtectionDomain;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -94,10 +95,37 @@ public class ConfigMapper {
         if (entity == null)
             return Collections.EMPTY_LIST;
         String ext = entity.fileExt();
-        return loadEntities(clazz, "*."+ext);
-    };
+        return loadEntities(clazz, "*." + ext);
+    }
+
+
+
+    private File getEntityDir(Entity entity) {
+        File dir = null;
+        if (entity.directoryPath().trim().equalsIgnoreCase("")) {
+            try {
+                dir = new File(ConfigMapper.class.getProtectionDomain().getCodeSource().getLocation().toURI().getPath());
+            } catch (URISyntaxException e) {
+                e.printStackTrace();
+            }
+        } else {
+            dir = new File(entity.directoryPath().replace("{WorkingDir}", path.toString()));
+        }
+        return dir;
+    }
+
 
     public <E> E loadEntity(Class<E> clazz, String id) {
+        Entity en = clazz.getAnnotation(Entity.class);
+        String fname = en.name().replace("{id}", id);
+        File dir = getEntityDir(en);
+        File f = new File(dir, fname);
+        if (!f.exists())
+            return null;
+        return loadEntity(clazz, f);
+    }
+
+    public <E> E loadEntity(Class<E> clazz, File f) {
         E e = null;
         try {
             e = clazz.newInstance();
@@ -105,14 +133,28 @@ public class ConfigMapper {
             e1.printStackTrace();
             return null;
         }
-
-
+        Config c = ConfigFactory.parseFile(f);
+        //todo
         return e;
     }
 
-    public <E> void saveEntity(E e)  {
-
+    public <E> void persist(E e) throws IllegalAccessException, IOException {
+        Entity en = e.getClass().getAnnotation(Entity.class);
+        String id = null;
+        for (Field f : e.getClass().getDeclaredFields()) {
+            if (f.isAnnotationPresent(Entity.Id.class))
+                id = f.get(e).toString();
+        }
+        if (id == null)
+            throw new RuntimeException("Missing id-field in " + e.getClass());
+        File dir = getEntityDir(en);
+        String fn = en.name().replace("{id}", id) + en.fileExt();
+        File f = new File(dir, fn);
+        if (f.exists())
+            f.delete();
+        writeToFile(f, e, e.getClass());
     }
+
 
     public <E> List<E> loadEntities(Class<E> clazz, String wildcart) {
         Entity entity = clazz.getAnnotation(Entity.class);
@@ -121,18 +163,18 @@ public class ConfigMapper {
         File dir = null;
         if (entity.directoryPath().trim().equalsIgnoreCase("")) {
             try {
-                dir = new File(new File(ConfigMapper.class.getProtectionDomain().getCodeSource().getLocation().toURI().getPath()), filename);
+                dir = new File(ConfigMapper.class.getProtectionDomain().getCodeSource().getLocation().toURI().getPath());
             } catch (URISyntaxException e) {
                 e.printStackTrace();
             }
         } else {
             dir = new File(entity.directoryPath().replace("{WorkingDir}", path.toString()));
         }
-        PathMatcher pathMatcher = FileSystems.getDefault().getPathMatcher("glob:"+wildcart);
+        PathMatcher pathMatcher = FileSystems.getDefault().getPathMatcher("glob:" + wildcart);
         List<E> entities = new Vector<E>();
         for (File f : dir.listFiles()) {
             if (pathMatcher.matches(f.toPath())) {
-                E e = loadEntity(clazz, removeExt(f.getName()));
+                E e = loadEntity(clazz, f);
                 if (e != null)
                     entities.add(e);
             }
@@ -141,13 +183,49 @@ public class ConfigMapper {
     }
 
     private String removeExt(String str) {
-      if (str == null)
-          return null;
-      int pos = str.lastIndexOf(".");
-      if (pos == -1)
-          return str;
-      return str.substring(0, pos);
+        if (str == null)
+            return null;
+        int pos = str.lastIndexOf(".");
+        if (pos == -1)
+            return str;
+        return str.substring(0, pos);
     }
+
+    private void writeToFile(File file, Object ref, Class<?> clazz) throws IOException {
+        FileWriter writer = new FileWriter(file);
+        Comment comment = clazz.getAnnotation(Comment.class);
+        if (comment != null) {
+            writeComments(comment, writer);
+        }
+        for (Field f : clazz.getDeclaredFields()) {
+            ConfigValue value = f.getAnnotation(ConfigValue.class);
+            if (value == null) {
+                continue;
+            }
+            comment = f.getAnnotation(Comment.class);
+            if (comment != null) {
+                writeComments(comment, writer);
+            }
+            String valueid = value.name();
+            if (valueid.trim().equalsIgnoreCase("")) {
+                valueid = f.getName();
+            }
+            String content = " ";
+            if (f.getType().isPrimitive() || primitiveWrappers.containsKey(f.getType())) {
+                content = primitiveToString(f, ref);
+            } else if (f.getType().isAssignableFrom(String.class)) {
+                content = "\"" + primitiveToString(f, ref) + "\"";
+            } else if (Collection.class.isAssignableFrom(f.getType())) {
+                content = collectionToString(f, ref);
+            } else if (Map.class.isAssignableFrom(f.getType())) {
+                content = mapToString(f, ref);
+            }
+            writer.write(getSerializedNode(valueid) + " : " + content + LSEPARATOR);
+        }
+        writer.flush();
+        writer.close();
+    }
+
 
     /**
      * This method creates defaults and loads configuration from file.
@@ -179,38 +257,7 @@ public class ConfigMapper {
                 e.printStackTrace();
             }
             try {
-                FileWriter writer = new FileWriter(file);
-                Comment comment = clazz.getAnnotation(Comment.class);
-                if (comment != null) {
-                    writeComments(comment, writer);
-                }
-                for (Field f : clazz.getDeclaredFields()) {
-                    ConfigValue value = f.getAnnotation(ConfigValue.class);
-                    if (value == null) {
-                        continue;
-                    }
-                    comment = f.getAnnotation(Comment.class);
-                    if (comment != null) {
-                        writeComments(comment, writer);
-                    }
-                    String valueid = value.name();
-                    if (valueid.trim().equalsIgnoreCase("")) {
-                        valueid = f.getName();
-                    }
-                    String content = " ";
-                    if (f.getType().isPrimitive() || primitiveWrappers.containsKey(f.getType())) {
-                        content = primitiveToString(f);
-                    } else if (f.getType().isAssignableFrom(String.class)) {
-                        content = "\"" + primitiveToString(f) + "\"";
-                    } else if (Collection.class.isAssignableFrom(f.getType())) {
-                        content = collectionToString(f);
-                    } else if (Map.class.isAssignableFrom(f.getType())) {
-                        content = mapToString(f);
-                    }
-                    writer.write(getSerializedNode(valueid) + " : " + content + LSEPARATOR);
-                }
-                writer.flush();
-                writer.close();
+                writeToFile(file, null, clazz);
 
             } catch (IOException e) {
                 e.printStackTrace();
@@ -218,31 +265,36 @@ public class ConfigMapper {
         }
         com.typesafe.config.Config config = ConfigFactory.parseFile(file);
         try {
-            for (Field f : clazz.getDeclaredFields()) {
-                if (f.getType().isAssignableFrom(String.class)) {
-                    f.set(null, config.getString(getNodeName(f)));
-                } else {
-                    CMPair cm = getCMPair(f);
-                    if (cm != null) {
-                        String s = config.getString(getNodeName(f));
-                        Object value = cm.parse.invoke(null, s);
-                        Method m = cm.set;
-                        m.invoke(f, f, value);
-                    } else if (f.getType().isAssignableFrom(List.class)) {
-                        f.set(null, stringToList(f, config.getStringList(getNodeName(f)), config));
-                    } else if (f.getType().isAssignableFrom(Set.class)) {
-                        f.set(null, stringToSet(f, config.getStringList(getNodeName(f)), config));
-                    } else if (f.getType().isAssignableFrom(Map.class)) {
-                        f.set(null, stringToMap(f, config.getConfig(getNodeName(f))));
-                    } else {
-                        IMarshaller<?> marshaller = f.getAnnotation(ConfigValue.class).as().newInstance();
-                        Object o = marshaller.unmarshall(config.getConfig(getNodeName(f)));
-                        f.set(null, o);
-                    }
-                }
-            }
+            loadFields(clazz, null, config);
         } catch (IllegalAccessException | InvocationTargetException | InstantiationException e) {
             e.printStackTrace();
+        }
+    }
+
+    private void loadFields(Class<?> clazz, Object ref, Config config) throws IllegalAccessException, InvocationTargetException, InstantiationException {
+        for (Field f : clazz.getDeclaredFields()) {
+            if (f.getType().isAssignableFrom(String.class)) {
+                f.set(ref, config.getString(getNodeName(f)));
+            } else {
+                CMPair cm = getCMPair(f);
+                String nodename = getNodeName(f);
+                if (cm != null) {
+                    String s = config.getString(nodename);
+                    Object value = cm.parse.invoke(ref, s);
+                    Method m = cm.set;
+                    m.invoke(f, f, value);
+                } else if (f.getType().isAssignableFrom(List.class)) {
+                    f.set(null, stringToList(ref, f, config.getStringList(nodename), config));
+                } else if (f.getType().isAssignableFrom(Set.class)) {
+                    f.set(null, stringToSet(ref, f, config.getStringList(nodename), config));
+                } else if (f.getType().isAssignableFrom(Map.class)) {
+                    f.set(null, stringToMap(ref, f, config.getConfig(nodename)));
+                } else {
+                    IMarshaller<?> marshaller = f.getAnnotation(ConfigValue.class).as().newInstance();
+                    Object o = marshaller.unmarshall(config.getConfig(getNodeName(f)));
+                    f.set(null, o);
+                }
+            }
         }
     }
 
@@ -259,7 +311,7 @@ public class ConfigMapper {
         return false;
     }
 
-    private Map<?, ?> stringToMap(Field f, Config config) {
+    private Map<?, ?> stringToMap(Object ref, Field f, Config config) {
         try {
             Map<Object, Object> map = (Map<Object, Object>) f.get(null);
             map.clear();
@@ -274,14 +326,14 @@ public class ConfigMapper {
                         k = val.getKey();
                     } else {
                         CMPair cm = primitiveWrappers.get(key);
-                        k = cm.parse.invoke(null, val.getKey());
+                        k = cm.parse.invoke(ref, val.getKey());
                     }
                     if (value.isAssignableFrom(String.class)) {
                         v = val.getValue().render();
                     } else {
                         CMPair cm = primitiveWrappers.get(value);
                         String input = val.getValue().render();
-                        v = cm.parse.invoke(null, input);
+                        v = cm.parse.invoke(ref, input);
                     }
                     map.put(k, v);
                 }
@@ -291,11 +343,7 @@ public class ConfigMapper {
                 map.put(entry.getKey(), entry.getValue());
             }
             return map;
-        } catch (IllegalAccessException e) {
-            e.printStackTrace();
-        } catch (InstantiationException e) {
-            e.printStackTrace();
-        } catch (InvocationTargetException e) {
+        } catch (IllegalAccessException | InstantiationException | InvocationTargetException e) {
             e.printStackTrace();
         }
         return null;
@@ -311,9 +359,9 @@ public class ConfigMapper {
         return field.getName();
     }
 
-    private Set<?> stringToSet(Field f, List<String> config, Config c) {
+    private Set<?> stringToSet(Object ref, Field f, List<String> config, Config c) {
         try {
-            Set set = (Set<?>) f.get(null);
+            Set set = (Set<?>) f.get(ref);
             set.clear();
             set.addAll(stringToCollection(f, config, c));
             return set;
@@ -363,9 +411,9 @@ public class ConfigMapper {
         return null;
     }
 
-    private List<?> stringToList(Field f, List<String> config, Config c) {
+    private List<?> stringToList(Object ref, Field f, List<String> config, Config c) {
         try {
-            List list = (List<?>) f.get(null);
+            List list = (List<?>) f.get(ref);
             list.clear();
             list.addAll(stringToCollection(f, config, c));
             return list;
@@ -375,24 +423,24 @@ public class ConfigMapper {
         return new ArrayList<Object>();
     }
 
-    private String collectionToString(Field f) {
+    private String collectionToString(Field f, Object ref) {
         String b = "[ ";
         Class<?> fclass = (Class<?>) ((ParameterizedType) f.getGenericType()).getActualTypeArguments()[0];
         if (List.class.isAssignableFrom(f.getType()) || Set.class.isAssignableFrom(f.getType())) {
             try {
                 if (fclass.isAssignableFrom(String.class)) {
-                    for (Object o : (Collection) f.get(null)) {
+                    for (Object o : (Collection) f.get(ref)) {
                         b += "\"" + o + "\", ";
                     }
                 } else if (isWrappedPrimitiveOrString(fclass)) {
-                    for (Object o : (Collection) f.get(null)) {
+                    for (Object o : (Collection) f.get(ref)) {
                         b += o.toString() + ", ";
                     }
                 } else {
                     ConfigValue v = f.getAnnotation(ConfigValue.class);
                     try {
                         IMarshaller m = v.as().newInstance();
-                        for (Object o : (Collection) f.get(null)) {
+                        for (Object o : (Collection) f.get(ref)) {
                             b += "\"" + m.marshall(o) + "\", ";
                         }
                     } catch (InstantiationException e) {
@@ -411,10 +459,10 @@ public class ConfigMapper {
         return b;
     }
 
-    private String mapToString(Field f) {
+    private String mapToString(Field f, Object ref) {
         Map<?, ?> map = null;
         try {
-            map = (Map) f.get(null);
+            map = (Map) f.get(ref);
         } catch (IllegalAccessException e) {
             e.printStackTrace();
         }
@@ -456,9 +504,9 @@ public class ConfigMapper {
         return false;
     }
 
-    private String primitiveToString(Field f) {
+    private String primitiveToString(Field f, Object ref) {
         try {
-            return f.get(null) + "";
+            return f.get(ref) + "";
         } catch (IllegalAccessException e) {
             e.printStackTrace();
         }
