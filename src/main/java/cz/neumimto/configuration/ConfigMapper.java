@@ -188,7 +188,7 @@ public class ConfigMapper {
         return m;
     }
 
-    public <E> List<E> loadEntities(Class<E> clazz, String wildcart) {
+    public <E> List<E> loadEntities(Class<E> clazz, String wildcard) {
         Entity entity = clazz.getAnnotation(Entity.class);
         if (entity == null)
             return Collections.EMPTY_LIST;
@@ -202,7 +202,7 @@ public class ConfigMapper {
         } else {
             dir = new File(entity.directoryPath().replace("{WorkingDir}", path.toString()));
         }
-        PathMatcher pathMatcher = FileSystems.getDefault().getPathMatcher("glob:" + wildcart);
+        PathMatcher pathMatcher = FileSystems.getDefault().getPathMatcher("glob:" + wildcard);
         List<E> entities = new Vector<E>();
         for (File f : dir.listFiles()) {
             if (pathMatcher.matches(f.toPath())) {
