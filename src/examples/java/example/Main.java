@@ -2,6 +2,7 @@ package example;
 
 import cz.neumimto.configuration.ConfigMapper;
 
+import java.io.IOException;
 import java.util.List;
 
 /**
@@ -16,10 +17,14 @@ public class Main {
         //
         //
         ConfigMapper loader = ConfigMapper.get(ID);
-        loader.loadClass(Test.class);
+        loader.loadConfiguration(Test.class);
         ExampleEntity ex = new ExampleEntity("name",12345);
-        loader.persist(ex);
-        loader.persist(new ExampleEntity("asdf",3458));
+        try {
+            loader.persist(ex);
+            loader.persist(new ExampleEntity("asdf",3458));
+        } catch (IllegalAccessException | IOException e) {
+            e.printStackTrace();
+        }
         List<ExampleEntity> l = loader.loadEntities(ExampleEntity.class);
         System.out.println(l.size());
     }

@@ -6,10 +6,7 @@ import com.typesafe.config.ConfigFactory;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.*;
 import java.net.URISyntaxException;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
@@ -99,7 +96,6 @@ public class ConfigMapper {
     }
 
 
-
     private File getEntityDir(Entity entity) {
         File dir = null;
         if (entity.directoryPath().trim().equalsIgnoreCase("")) {
@@ -134,7 +130,11 @@ public class ConfigMapper {
             return null;
         }
         Config c = ConfigFactory.parseFile(f);
-        //todo
+        try {
+            loadFields(clazz, e, c);
+        } catch (IllegalAccessException | InvocationTargetException | InstantiationException e1) {
+            e1.printStackTrace();
+        }
         return e;
     }
 
@@ -142,11 +142,19 @@ public class ConfigMapper {
         Entity en = e.getClass().getAnnotation(Entity.class);
         String id = null;
         for (Field f : e.getClass().getDeclaredFields()) {
-            if (f.isAnnotationPresent(Entity.Id.class))
-                id = f.get(e).toString();
+            if (f.isAnnotationPresent(Entity.Id.class)) {
+                //dont modify field access
+                Method m = getGetter(e, f);
+                try {
+                    id = m.invoke(e).toString();
+                } catch (InvocationTargetException e1) {
+                    e1.printStackTrace();
+
+                }
+            }
         }
         if (id == null)
-            throw new RuntimeException("Missing id-field in " + e.getClass());
+            throw new IllegalStateException("Missing id-field in " + e.getClass());
         File dir = getEntityDir(en);
         String fn = en.name().replace("{id}", id) + en.fileExt();
         File f = new File(dir, fn);
@@ -155,6 +163,30 @@ public class ConfigMapper {
         writeToFile(f, e, e.getClass());
     }
 
+    private Method getSetter(Object o, Field f) {
+        String n = "set" + capitaliziFirst(f.getName());
+
+        for (Method m : o.getClass().getMethods()) {
+            if (m.getName().equals(n)) {
+                return m;
+            }
+        }
+        return null;
+    }
+
+    private String capitaliziFirst(String name) {
+        return name.substring(0, 1).toUpperCase() + name.substring(1);
+    }
+
+    public Method getGetter(Object o, Field f) {
+        Method m = null;
+        try {
+            m = o.getClass().getDeclaredMethod("get" + capitaliziFirst(f.getName()));
+        } catch (NoSuchMethodException e) {
+            throw new RuntimeException("Missing getter of " + o.getClass().getName() + "." + f.getName());
+        }
+        return m;
+    }
 
     public <E> List<E> loadEntities(Class<E> clazz, String wildcart) {
         Entity entity = clazz.getAnnotation(Entity.class);
@@ -211,14 +243,38 @@ public class ConfigMapper {
                 valueid = f.getName();
             }
             String content = " ";
-            if (f.getType().isPrimitive() || primitiveWrappers.containsKey(f.getType())) {
-                content = primitiveToString(f, ref);
-            } else if (f.getType().isAssignableFrom(String.class)) {
-                content = "\"" + primitiveToString(f, ref) + "\"";
-            } else if (Collection.class.isAssignableFrom(f.getType())) {
-                content = collectionToString(f, ref);
-            } else if (Map.class.isAssignableFrom(f.getType())) {
-                content = mapToString(f, ref);
+            if (f.isAccessible()) {
+                //access field directly
+                if (f.getType().isPrimitive() || primitiveWrappers.containsKey(f.getType())) {
+                    content = primitiveToString(f, ref);
+                } else if (f.getType().isAssignableFrom(String.class)) {
+                    content = "\"" + primitiveToString(f, ref) + "\"";
+                } else if (Collection.class.isAssignableFrom(f.getType())) {
+                    content = collectionToString(f, ref);
+                } else if (Map.class.isAssignableFrom(f.getType())) {
+                    content = mapToString(f, ref);
+                }
+            } else {
+                //call getter method
+                Method m = getGetter(ref, f);
+                Class r = m.getReturnType();
+                if (String.class.isAssignableFrom(r)) {
+                    try {
+                        content = "\"" + m.invoke(ref) + "\"";
+                    } catch (IllegalAccessException | InvocationTargetException e) {
+                        e.printStackTrace();
+                    }
+                } else if (primitives.containsKey(r) || primitiveWrappers.containsKey(r)) {
+                    try {
+                        content = m.invoke(ref) + "";
+                    } catch (IllegalAccessException | InvocationTargetException e) {
+                        e.printStackTrace();
+                    }
+                } else if (Collection.class.isAssignableFrom(r)) {
+                    //todo
+                } else if (Map.class.isAssignableFrom(r)) {
+                    //todo
+                }
             }
             writer.write(getSerializedNode(valueid) + " : " + content + LSEPARATOR);
         }
@@ -231,7 +287,7 @@ public class ConfigMapper {
      * This method creates defaults and loads configuration from file.
      * All fields you wish to load must be static and annotated with @ConfigValue
      */
-    public void loadClass(Class<?> clazz) {
+    public void loadConfiguration(Class<?> clazz) {
         ConfigurationContainer container = clazz.getAnnotation(ConfigurationContainer.class);
         if (container == null)
             return;
@@ -258,7 +314,6 @@ public class ConfigMapper {
             }
             try {
                 writeToFile(file, null, clazz);
-
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -273,27 +328,32 @@ public class ConfigMapper {
 
     private void loadFields(Class<?> clazz, Object ref, Config config) throws IllegalAccessException, InvocationTargetException, InstantiationException {
         for (Field f : clazz.getDeclaredFields()) {
-            if (f.getType().isAssignableFrom(String.class)) {
-                f.set(ref, config.getString(getNodeName(f)));
-            } else {
-                CMPair cm = getCMPair(f);
-                String nodename = getNodeName(f);
-                if (cm != null) {
-                    String s = config.getString(nodename);
-                    Object value = cm.parse.invoke(ref, s);
-                    Method m = cm.set;
-                    m.invoke(f, f, value);
-                } else if (f.getType().isAssignableFrom(List.class)) {
-                    f.set(null, stringToList(ref, f, config.getStringList(nodename), config));
-                } else if (f.getType().isAssignableFrom(Set.class)) {
-                    f.set(null, stringToSet(ref, f, config.getStringList(nodename), config));
-                } else if (f.getType().isAssignableFrom(Map.class)) {
-                    f.set(null, stringToMap(ref, f, config.getConfig(nodename)));
+            if (f.isAccessible()) {
+                if (f.getType().isAssignableFrom(String.class)) {
+                    f.set(ref, config.getString(getNodeName(f)));
                 } else {
-                    IMarshaller<?> marshaller = f.getAnnotation(ConfigValue.class).as().newInstance();
-                    Object o = marshaller.unmarshall(config.getConfig(getNodeName(f)));
-                    f.set(null, o);
+                    CMPair cm = getCMPair(f);
+                    String nodename = getNodeName(f);
+                    if (cm != null) {
+                        String s = config.getString(nodename);
+                        Object value = cm.parse.invoke(ref, s);
+                        Method m = cm.set;
+                        m.invoke(f, f, value);
+                    } else if (f.getType().isAssignableFrom(List.class)) {
+                        f.set(ref, stringToList(ref, f, config.getStringList(nodename), config));
+                    } else if (f.getType().isAssignableFrom(Set.class)) {
+                        f.set(ref, stringToSet(ref, f, config.getStringList(nodename), config));
+                    } else if (f.getType().isAssignableFrom(Map.class)) {
+                        f.set(ref, stringToMap(ref, f, config.getConfig(nodename)));
+                    } else {
+                        IMarshaller<?> marshaller = f.getAnnotation(ConfigValue.class).as().newInstance();
+                        Object o = marshaller.unmarshall(config.getConfig(getNodeName(f)));
+                        f.set(ref, o);
+                    }
                 }
+            } else {
+                Method m = getSetter(ref, f);
+                //todo invoker setter
             }
         }
     }
@@ -363,7 +423,7 @@ public class ConfigMapper {
         try {
             Set set = (Set<?>) f.get(ref);
             set.clear();
-            set.addAll(stringToCollection(f, config, c));
+            set.addAll(stringToCollection(ref, f, config, c));
             return set;
         } catch (IllegalAccessException e) {
             e.printStackTrace();
@@ -371,33 +431,33 @@ public class ConfigMapper {
         return new HashSet<Object>();
     }
 
-    private <T extends Number> List<T> strToWrapper(Class<T> excepted, List<String> list) {
+    private <T extends Number> List<T> strToWrapper(Object ref, Class<T> excepted, List<String> list) {
         List l = new Vector<>();
         CMPair cmPair = primitiveWrappers.get(excepted);
         for (String s : list)
             try {
-                l.add(cmPair.parse.invoke(null, s));
+                l.add(cmPair.parse.invoke(ref, s));
             } catch (IllegalAccessException | InvocationTargetException e) {
                 e.printStackTrace();
             }
         return l;
     }
 
-    private Collection<?> stringToCollection(Field f, List<String> config, Config c) {
+    private Collection<?> stringToCollection(Object ref, Field f, List<String> config, Config c) {
         try {
-            Collection list = (Collection) f.get(null);
+            Collection list = (Collection) f.get(ref);
             list.clear();
             Class<?> type = (Class<?>) ((ParameterizedType) f.getGenericType()).getActualTypeArguments()[0];
             if (type.isAssignableFrom(String.class)) {
                 list = config;
             } else if (type.isAssignableFrom(Double.class)) {
-                list = strToWrapper(Double.class, config);
+                list = strToWrapper(ref, Double.class, config);
             } else if (type.isAssignableFrom(Integer.class)) {
-                list = strToWrapper(Integer.class, config);
+                list = strToWrapper(ref, Integer.class, config);
             } else if (type.isAssignableFrom(Float.class)) {
-                list = strToWrapper(Float.class, config);
+                list = strToWrapper(ref, Float.class, config);
             } else if (type.isAssignableFrom(Short.class)) {
-                list = strToWrapper(Short.class, config);
+                list = strToWrapper(ref, Short.class, config);
             } else {
                 IMarshaller<?> marshaller = f.getAnnotation(ConfigValue.class).as().newInstance();
                 list.add(marshaller.unmarshall(c.getConfig(getNodeName(f))));
@@ -412,15 +472,10 @@ public class ConfigMapper {
     }
 
     private List<?> stringToList(Object ref, Field f, List<String> config, Config c) {
-        try {
-            List list = (List<?>) f.get(ref);
-            list.clear();
-            list.addAll(stringToCollection(f, config, c));
-            return list;
-        } catch (IllegalAccessException e) {
-            e.printStackTrace();
-        }
-        return new ArrayList<Object>();
+        List list = (List<?>) getFieldValue(f, ref);
+        list.clear();
+        list.addAll(stringToCollection(ref, f, config, c));
+        return list;
     }
 
     private String collectionToString(Field f, Object ref) {
@@ -459,13 +514,37 @@ public class ConfigMapper {
         return b;
     }
 
+    public Object getFieldValue(Field f, Object ref) {
+        if (Modifier.isStatic(f.getModifiers())) {
+            try {
+                return f.get(null);
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+            }
+        }
+        if (Modifier.isPublic(f.getModifiers())) {
+            try {
+                return f.get(ref);
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+            }
+        }
+        try {
+            return getGetter(ref, f).invoke(ref);
+        } catch (IllegalAccessException | InvocationTargetException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
     private String mapToString(Field f, Object ref) {
-        Map<?, ?> map = null;
+        Map<?, ?> map = (Map<?, ?>) getFieldValue(f, ref);
+        /*
         try {
             map = (Map) f.get(ref);
         } catch (IllegalAccessException e) {
             e.printStackTrace();
-        }
+        }*/
         String a = "{" + LSEPARATOR;
         ParameterizedType type = (ParameterizedType) f.getGenericType();
         Class<?> key = (Class<?>) type.getActualTypeArguments()[0];
@@ -505,12 +584,21 @@ public class ConfigMapper {
     }
 
     private String primitiveToString(Field f, Object ref) {
+        if (Modifier.isStatic(f.getModifiers())) {
+            try {
+                return f.get(ref) + "";
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+            }
+        }
         try {
-            return f.get(ref) + "";
+            return getGetter(ref, f).invoke(ref) + "";
         } catch (IllegalAccessException e) {
             e.printStackTrace();
+        } catch (InvocationTargetException e) {
+            e.printStackTrace();
         }
-        return "";
+        return null;
     }
 
     private void writeComments(Comment comment, FileWriter writer) {

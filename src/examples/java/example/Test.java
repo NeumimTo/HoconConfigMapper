@@ -11,7 +11,7 @@ import java.util.*;
  *
  * Working dir is replaced by path you specify in init method
  *
- * @see cz.neumimto.configuration.ConfigMapper#loadClass(Class)
+ * @see cz.neumimto.configuration.ConfigMapper#loadConfiguration(Class) (Class)
  * @see cz.neumimto.configuration.ConfigMapper#init(String, java.nio.file.Path)
  */
 @Comment(content = {"comments -  , first line","Second line"})
