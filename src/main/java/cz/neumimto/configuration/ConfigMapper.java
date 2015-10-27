@@ -1,6 +1,24 @@
+/*    
+ *     Copyright (c) 2015, NeumimTo https://github.com/NeumimTo
+ *
+ *     This program is free software: you can redistribute it and/or modify
+ *     it under the terms of the GNU General Public License as published by
+ *     the Free Software Foundation, either version 3 of the License, or
+ *     (at your option) any later version.
+ *
+ *     This program is distributed in the hope that it will be useful,
+ *     but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *     GNU General Public License for more details.
+ *
+ *     You should have received a copy of the GNU General Public License
+ *     along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *     
+ */
 package cz.neumimto.configuration;
 
 import com.typesafe.config.Config;
+import com.typesafe.config.ConfigException;
 import com.typesafe.config.ConfigFactory;
 
 import java.io.File;
@@ -11,7 +29,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.net.URISyntaxException;
-import java.nio.file.Path;
+import java.nio.file.*;
 import java.security.ProtectionDomain;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -88,6 +106,36 @@ public class ConfigMapper {
         return currents.get(id.toLowerCase());
     }
 
+    private String fieldToString(Field f) {
+        String valueid = f.getAnnotation(ConfigValue.class).name();
+        if (valueid.trim().equalsIgnoreCase("")) {
+            valueid = f.getName();
+        }
+        String content = " ";
+        if (f.getType().isPrimitive() || primitiveWrappers.containsKey(f.getType())) {
+            content = primitiveToString(f);
+        } else if (f.getType().isAssignableFrom(String.class)) {
+            content = "\"" + primitiveToString(f) + "\"";
+        } else if (Collection.class.isAssignableFrom(f.getType())) {
+            content = collectionToString(f);
+        } else if (Map.class.isAssignableFrom(f.getType())) {
+            content = mapToString(f);
+        }
+        return String.join(":", getSerializedNode(valueid), content + LSEPARATOR);
+    }
+
+    private void appendFile(Field f, FileWriter writer) throws IOException {
+        if (f.getAnnotation(Comment.class) != null) {
+            String[] s = f.getAnnotation(Comment.class).content();
+            for (String a : s) {
+                writer.append("#").append(a);
+                writer.append(LSEPARATOR);
+            }
+        }
+        writer.append(fieldToString(f));
+    }
+
+
     /**
      * This method creates defaults and loads configuration from file.
      * All fields you wish to load must be static and annotated with @ConfigValue
@@ -110,6 +158,12 @@ public class ConfigMapper {
         } else {
             file = new File(container.path().replace("{WorkingDir}", path.toString()), filename);
         }
+        FileWriter writer = null;
+        try {
+            writer = new FileWriter(file);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
         if (!file.exists()) {
             file.getParentFile().mkdirs();
             try {
@@ -117,45 +171,21 @@ public class ConfigMapper {
             } catch (IOException e) {
                 e.printStackTrace();
             }
+        }
+        com.typesafe.config.Config config = ConfigFactory.parseFile(file);
+        if (addMissing(config, clazz, writer)) {
             try {
-                FileWriter writer = new FileWriter(file);
-                Comment comment = clazz.getAnnotation(Comment.class);
-                if (comment != null) {
-                    writeComments(comment, writer);
-                }
-                for (Field f : clazz.getDeclaredFields()) {
-                    ConfigValue value = f.getAnnotation(ConfigValue.class);
-                    if (value == null) {
-                        continue;
-                    }
-                    comment = f.getAnnotation(Comment.class);
-                    if (comment != null) {
-                        writeComments(comment, writer);
-                    }
-                    String valueid = value.name();
-                    if (valueid.trim().equalsIgnoreCase("")) {
-                        valueid = f.getName();
-                    }
-                    String content = " ";
-                    if (f.getType().isPrimitive() || primitiveWrappers.containsKey(f.getType())) {
-                        content = primitiveToString(f);
-                    } else if (f.getType().isAssignableFrom(String.class)) {
-                        content = "\"" + primitiveToString(f) + "\"";
-                    } else if (Collection.class.isAssignableFrom(f.getType())) {
-                        content = collectionToString(f);
-                    } else if (Map.class.isAssignableFrom(f.getType())) {
-                        content = mapToString(f);
-                    }
-                    writer.write(getSerializedNode(valueid) + " : " + content + LSEPARATOR);
-                }
                 writer.flush();
-                writer.close();
-
             } catch (IOException e) {
                 e.printStackTrace();
             }
+            config = ConfigFactory.parseFile(file);
         }
-        com.typesafe.config.Config config = ConfigFactory.parseFile(file);
+        try {
+            writer.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
         try {
             for (Field f : clazz.getDeclaredFields()) {
                 if (f.getType().isAssignableFrom(String.class)) {
@@ -182,7 +212,32 @@ public class ConfigMapper {
             }
         } catch (IllegalAccessException | InvocationTargetException | InstantiationException e) {
             e.printStackTrace();
+        } finally {
+            try {
+                if (writer != null) {
+                    writer.close();
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
+    }
+
+    private boolean addMissing(Config config, Class clazz, FileWriter writer) {
+        boolean b = false;
+        for (Field f : clazz.getDeclaredFields()) {
+            try {
+                config.hasPath(config.getString(getNodeName(f)));
+            } catch (ConfigException.Missing e) {
+                try {
+                    appendFile(f, writer);
+                } catch (IOException e1) {
+                    e1.printStackTrace();
+                }
+                b = true;
+            }
+        }
+        return b;
     }
 
     private CMPair getCMPair(Field f) {
@@ -230,9 +285,7 @@ public class ConfigMapper {
                 map.put(entry.getKey(), entry.getValue());
             }
             return map;
-        } catch (IllegalAccessException e) {
-            e.printStackTrace();
-        } catch (InstantiationException e) {
+        } catch (IllegalAccessException | InstantiationException e) {
             e.printStackTrace();
         } catch (InvocationTargetException e) {
             e.printStackTrace();
@@ -407,7 +460,7 @@ public class ConfigMapper {
     private void writeComments(Comment comment, FileWriter writer) {
         for (String string : comment.content()) {
             try {
-                writer.write("#" + string + LSEPARATOR);
+                writer.append("#").append(string).append(LSEPARATOR);
             } catch (IOException e) {
                 e.printStackTrace();
             }

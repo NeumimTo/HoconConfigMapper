@@ -1,5 +1,6 @@
 package example;
 
+import com.typesafe.config.ConfigFactory;
 import cz.neumimto.configuration.Comment;
 import cz.neumimto.configuration.ConfigValue;
 import cz.neumimto.configuration.ConfigurationContainer;
@@ -14,12 +15,11 @@ import java.util.*;
  * @see cz.neumimto.configuration.ConfigMapper#loadClass(Class)
  * @see cz.neumimto.configuration.ConfigMapper#init(String, java.nio.file.Path)
  */
-@Comment(content = {"comments -  , first line","Second line"})
 @ConfigurationContainer(path = "{WorkingDir}",filename = "example.Test.conf")
 public class Test {
 
     @ConfigValue(name = "Test")
-    public static String TEST = "This is a value of field test";
+    public static String Teststr = "This is a value of field test";
 
     @Comment(content = {"second field"})
     @ConfigValue()
