@@ -132,7 +132,9 @@ public class ConfigMapper {
                 writer.append(LSEPARATOR);
             }
         }
-        writer.append(fieldToString(f));
+        if (f.getAnnotation(ConfigValue.class) != null) {
+            writer.append(fieldToString(f));
+        }
     }
 
 
