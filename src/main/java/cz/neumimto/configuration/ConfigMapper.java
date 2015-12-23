@@ -20,10 +20,9 @@ package cz.neumimto.configuration;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigException;
 import com.typesafe.config.ConfigFactory;
+import sun.misc.IOUtils;
 
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
+import java.io.*;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -128,12 +127,12 @@ public class ConfigMapper {
         if (f.getAnnotation(Comment.class) != null) {
             String[] s = f.getAnnotation(Comment.class).content();
             for (String a : s) {
-                writer.append("#").append(a);
+                writer.append("\t").append("#").append(a);
                 writer.append(LSEPARATOR);
             }
         }
         if (f.getAnnotation(ConfigValue.class) != null) {
-            writer.append(fieldToString(f));
+            writer.append("\t").append(fieldToString(f));
         }
     }
 
@@ -154,35 +153,32 @@ public class ConfigMapper {
         if (container.path().trim().equalsIgnoreCase("")) {
             try {
                 file = new File(new File(ConfigMapper.class.getProtectionDomain().getCodeSource().getLocation().toURI().getPath()), filename);
+
             } catch (URISyntaxException e) {
                 e.printStackTrace();
             }
         } else {
             file = new File(container.path().replace("{WorkingDir}", path.toString()), filename);
         }
-        FileWriter writer = null;
-        try {
-            writer = new FileWriter(file);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        if (!file.exists()) {
+         if (!file.exists()) {
             file.getParentFile().mkdirs();
             try {
                 file.createNewFile();
+                Files.write(file.toPath(),"{\n\n}".getBytes(),StandardOpenOption.WRITE);
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
+        FileWriter writer = null;
+        try {
+            writer = new FileWriter(file,true);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
         com.typesafe.config.Config config = ConfigFactory.parseFile(file);
-        if (addMissing(config, clazz, writer)) {
-            try {
-                writer.flush();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            config = ConfigFactory.parseFile(file);
-        }
+        addMissing(config,clazz,file);
+        config = ConfigFactory.parseFile(file);
         try {
             writer.close();
         } catch (IOException e) {
@@ -223,6 +219,47 @@ public class ConfigMapper {
                 e.printStackTrace();
             }
         }
+    }
+
+    private void addMissing(Config config, Class clazz, File file) {
+            for (Field f : clazz.getDeclaredFields()) {
+                try {
+                    config.hasPath(getNodeName(f));
+                } catch (ConfigException.Missing e) {
+                    try (RandomAccessFile fr = new RandomAccessFile(file, "rw")) {
+                        long length = fr.length() - 1;
+                        byte b;
+                        do {
+                            length -= 1;
+                            fr.seek(length);
+                            b = fr.readByte();
+                        } while (b != 10);
+                        fr.setLength(length + 1);
+
+                        StringBuilder writer = new StringBuilder();
+                        if (f.getAnnotation(Comment.class) != null) {
+                            String[] s = f.getAnnotation(Comment.class).content();
+                            for (String a : s) {
+                                writer = new StringBuilder();
+                                writer.append("\t").append("#").append(a);
+                                writer.append(LSEPARATOR);
+                            }
+                        }
+                        if (f.getAnnotation(ConfigValue.class) != null) {
+                            writer.append("\t").append(fieldToString(f));
+                            writer.append(LSEPARATOR);
+                        }
+                        writer.append("}");
+                        fr.write(writer.toString().getBytes());
+                        fr.close();
+                    } catch (IOException s) {
+                        throw new RuntimeException(s);
+                    }
+                }
+            }
+
+
+
     }
 
     private boolean addMissing(Config config, Class clazz, FileWriter writer) {
