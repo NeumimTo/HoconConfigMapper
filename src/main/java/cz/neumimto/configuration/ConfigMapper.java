@@ -17,6 +17,7 @@
  */
 package cz.neumimto.configuration;
 
+import com.sun.org.apache.xpath.internal.operations.Bool;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigException;
 import com.typesafe.config.ConfigFactory;
@@ -221,40 +222,47 @@ public class ConfigMapper {
         }
     }
 
+    private void addMissing(Field f, File file) {
+        try (RandomAccessFile fr = new RandomAccessFile(file, "rw")) {
+            long length = fr.length() - 1;
+            byte b;
+            do {
+                length -= 1;
+                fr.seek(length);
+                b = fr.readByte();
+            } while (b != 10);
+            fr.setLength(length + 1);
+
+            StringBuilder writer = new StringBuilder();
+            if (f.getAnnotation(Comment.class) != null) {
+                String[] s = f.getAnnotation(Comment.class).content();
+                for (String a : s) {
+                    writer = new StringBuilder();
+                    writer.append("\t").append("#").append(a);
+                    writer.append(LSEPARATOR);
+                }
+            }
+            if (f.getAnnotation(ConfigValue.class) != null) {
+                writer.append("\t").append(fieldToString(f));
+                writer.append(LSEPARATOR);
+            }
+            writer.append("}");
+            fr.write(writer.toString().getBytes());
+            fr.close();
+        } catch (IOException s) {
+            throw new RuntimeException(s);
+        }
+    }
+
     private void addMissing(Config config, Class clazz, File file) {
             for (Field f : clazz.getDeclaredFields()) {
                 try {
-                    config.hasPath(getNodeName(f));
+                    String path = getSerializedNode(getNodeName(f));
+                    boolean v = config.hasPath(path);
+                    if (!v)
+                        addMissing(f,file);
                 } catch (ConfigException.Missing e) {
-                    try (RandomAccessFile fr = new RandomAccessFile(file, "rw")) {
-                        long length = fr.length() - 1;
-                        byte b;
-                        do {
-                            length -= 1;
-                            fr.seek(length);
-                            b = fr.readByte();
-                        } while (b != 10);
-                        fr.setLength(length + 1);
-
-                        StringBuilder writer = new StringBuilder();
-                        if (f.getAnnotation(Comment.class) != null) {
-                            String[] s = f.getAnnotation(Comment.class).content();
-                            for (String a : s) {
-                                writer = new StringBuilder();
-                                writer.append("\t").append("#").append(a);
-                                writer.append(LSEPARATOR);
-                            }
-                        }
-                        if (f.getAnnotation(ConfigValue.class) != null) {
-                            writer.append("\t").append(fieldToString(f));
-                            writer.append(LSEPARATOR);
-                        }
-                        writer.append("}");
-                        fr.write(writer.toString().getBytes());
-                        fr.close();
-                    } catch (IOException s) {
-                        throw new RuntimeException(s);
-                    }
+                    addMissing(f,file);
                 }
             }
 
