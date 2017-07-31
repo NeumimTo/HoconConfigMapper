@@ -107,7 +107,8 @@ public class ConfigMapper {
     }
 
     private String fieldToString(Field f) {
-        String valueid = f.getAnnotation(ConfigValue.class).name();
+        ConfigValue a = f.getAnnotation(ConfigValue.class);
+        String valueid = a.name();
         if (valueid.trim().equalsIgnoreCase("")) {
             valueid = f.getName();
         }
@@ -120,6 +121,13 @@ public class ConfigMapper {
             content = collectionToString(f);
         } else if (Map.class.isAssignableFrom(f.getType())) {
             content = mapToString(f);
+        } else {
+            Class<? extends IMarshaller> as = a.as();
+            try {
+                content = as.newInstance().marshall(f.get(null));
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
         return String.join(":", getSerializedNode(valueid), content + LSEPARATOR);
     }
