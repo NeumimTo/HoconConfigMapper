@@ -1,9 +1,6 @@
-package example;
+package test;
 
-import com.typesafe.config.ConfigFactory;
-import cz.neumimto.configuration.Comment;
-import cz.neumimto.configuration.ConfigValue;
-import cz.neumimto.configuration.ConfigurationContainer;
+import cz.neumimto.configuration.*;
 
 import java.util.*;
 
@@ -41,7 +38,7 @@ public class Test {
     }};
 
 
-    @Comment(content = {"String map"})
+    @Comment(content = {"String map", "second line", "third line", "nth line"})
     @ConfigValue()
     public static Map<String,Integer> stringIntPairs = new HashMap<String,Integer>(){{
         put("AKey1",5);

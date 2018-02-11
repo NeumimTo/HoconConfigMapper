@@ -1,4 +1,4 @@
-package example;
+package test;
 
 import cz.neumimto.configuration.ConfigMapper;
 

@@ -17,22 +17,15 @@
  */
 package cz.neumimto.configuration;
 
-import com.sun.org.apache.xpath.internal.operations.Bool;
-import com.typesafe.config.Config;
-import com.typesafe.config.ConfigException;
-import com.typesafe.config.ConfigFactory;
-import sun.misc.IOUtils;
+import com.typesafe.config.*;
 
 import java.io.*;
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.lang.reflect.ParameterizedType;
-import java.net.URISyntaxException;
+import java.lang.reflect.*;
+import java.net.*;
 import java.nio.file.*;
-import java.security.ProtectionDomain;
+import java.security.*;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
 
 public class ConfigMapper {
     private static class CMPair {
@@ -136,8 +129,8 @@ public class ConfigMapper {
         if (f.getAnnotation(Comment.class) != null) {
             String[] s = f.getAnnotation(Comment.class).content();
             for (String a : s) {
-                writer.append("\t").append("#").append(a);
-                writer.append(LSEPARATOR);
+                writer.append("\t").append("#").append(a).append(LSEPARATOR);
+                writer.flush();
             }
         }
         if (f.getAnnotation(ConfigValue.class) != null) {
@@ -245,11 +238,11 @@ public class ConfigMapper {
             if (f.getAnnotation(Comment.class) != null) {
                 String[] s = f.getAnnotation(Comment.class).content();
                 for (String a : s) {
-                    writer = new StringBuilder();
-                    writer.append("\t").append("#").append(a);
-                    writer.append(LSEPARATOR);
+                    writer.append("\t").append("#").append(a).append(LSEPARATOR);
+
                 }
             }
+
             if (f.getAnnotation(ConfigValue.class) != null) {
                 writer.append("\t").append(fieldToString(f));
                 writer.append(LSEPARATOR);
@@ -471,7 +464,7 @@ public class ConfigMapper {
         Class<?> value = (Class<?>) type.getActualTypeArguments()[1];
         if (isWrappedPrimitiveOrString(key) && isWrappedPrimitiveOrString(value)) {
             for (Map.Entry<?, ?> entry : map.entrySet()) {
-                a += "\t" + mapEntryToString(entry.getKey()) + " : " + mapEntryToString(entry.getValue()) + "," + LSEPARATOR;
+                a += "\t\t" + mapEntryToString(entry.getKey()) + " : " + mapEntryToString(entry.getValue()) + "," + LSEPARATOR;
             }
         } else {
             try {
@@ -487,7 +480,7 @@ public class ConfigMapper {
             }
         }
         a = a.substring(0, a.length() - (1 + LSEPARATOR.length()));
-        return a + LSEPARATOR + "}";
+        return a + LSEPARATOR + "\t" + "}";
     }
 
 
