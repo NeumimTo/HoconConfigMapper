@@ -114,6 +114,12 @@ public class ConfigMapper {
             content = collectionToString(f);
         } else if (Map.class.isAssignableFrom(f.getType())) {
             content = mapToString(f);
+        } else if (Enum.class.isAssignableFrom(f.getType())) {
+            try {
+                content = ((Enum)f.get(null)).name();
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+            }
         } else {
             Class<? extends IMarshaller> as = a.as();
             try {
@@ -203,6 +209,8 @@ public class ConfigMapper {
                         f.set(null, stringToSet(f, config.getStringList(getNodeName(f)), config));
                     } else if (f.getType().isAssignableFrom(Map.class)) {
                         f.set(null, stringToMap(f, config.getConfig(getNodeName(f))));
+                    } else if (Enum.class.isAssignableFrom(f.getType())) {
+                        f.set(null, Enum.valueOf(((Class<? extends Enum>)f.getType()),(config.getString(getNodeName(f)))));
                     } else {
                         IMarshaller<?> marshaller = f.getAnnotation(ConfigValue.class).as().newInstance();
                         Object o = marshaller.unmarshall(config.getConfig(getNodeName(f)));

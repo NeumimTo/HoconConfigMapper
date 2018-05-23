@@ -45,4 +45,6 @@ public class Test {
         put("AKey2",5000);
     }};
 
+    @ConfigValue()
+    public static TestEnum testEnum = TestEnum.A;
 }

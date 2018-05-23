@@ -15,5 +15,6 @@ public class Main {
         //
         ConfigMapper loader = ConfigMapper.get(ID);
         loader.loadClass(Test.class);
+
     }
 }
